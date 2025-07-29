@@ -13,10 +13,10 @@ int fputc(int ch, FILE *f)
  * @brief   用户自定义变量
  */
 uint8_t system_sample_flag = 0;                                                // 采样标志
-float system_sample_time   = 0.0001f;                                         // 采样时间
+float system_sample_time   = 0.00005f;                                         // 采样时间
 uint8_t system_print       = 0;                                                // 用户打印标志
 uint8_t system_flag        = 0;                                                // 系统状态机标志
-uint16_t system_adc_value[4] __attribute__((section(".ARM.__at_0x24000000"))); // ADC 采样值
+uint16_t system_adc_value[6] __attribute__((section(".ARM.__at_0x24000000"))); // ADC 采样值
 
 /************************************* 按键标志 ************************************* */
 uint8_t system_key1_flag; // SWITCH_1 按键标志
@@ -27,14 +27,25 @@ float us_theta = 0; // 电网电压相位
 SOGI_t us_sogi; // 电网电压积分器
 PID_t us_pll;   // 电网电压锁相环
 
-float u_dc = 50; // 母线电压
+float u_dc; // 母线电压
 
 /************************************ 三相逆变器 ************************************ */
 float uo_theta; // 输出电压电角度
 
+abc_t uo_abc; // 逆变器输出电压 ABC 分量
+abc_t io_abc; // 逆变器输出电流 ABC 分量
+
+dq_t uo_dq; // 逆变器输出电压 dq 分量
+dq_t io_dq; // 逆变器输出电流 dq 分量
+
 dq_t u_dq;           // dq 电压指令值
 abc_t u_abc;         // ABC 电压指令值
 duty_abc_t duty_abc; // ABC 占空比指令值
+
+PID_t uod_controller; // 逆变器输出 d 轴电压控制器
+PID_t iod_controller; // 逆变器输出 d 轴电流控制器
+PID_t uoq_controller; // 逆变器输出 q 轴电压控制器
+PID_t ioq_controller; // 逆变器输出 q 轴电流控制器
 
 /**********************************************
  * @brief   用户自定义临时变量
@@ -50,11 +61,16 @@ static void init()
     // 整流器相关参数初始化
     PID_init(&us_pll, 5000, 20000, 0, INFINITY, -INFINITY);
     SOGI_Init(&us_sogi, 2 * M_PI * 50.0f, system_sample_time);
+    // 逆变器相关参数初始化
+    PID_init(&uod_controller, 0.1f, 0.01f, 0.001f, 5, -5);
+    PID_init(&iod_controller, 0.1f, 0.01f, 0.001f, 27.71, -27.71);
+    PID_init(&uoq_controller, 0.1f, 0.01f, 0.001f, 5, -5);
+    PID_init(&ioq_controller, 0.1f, 0.01f, 0.001f, 27.71, -27.71);
     // ADC init
     HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED);
     __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_JEOC);
     __HAL_ADC_CLEAR_FLAG(&hadc1, ADC_FLAG_EOC);
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)system_adc_value, 4);
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)system_adc_value, 6);
     HAL_TIM_Base_Start(&htim1);
     while (system_sample_flag == 0) {
         ;
@@ -128,6 +144,26 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
     static uint32_t adc_us            = 0;
     static float adc_us_offset        = 0;
 
+    static uint32_t adc_udc_offset_sum = 0;
+    static uint32_t adc_udc            = 0;
+    static float adc_udc_offset        = 0;
+
+    static uint32_t adc_uoa_offset_sum = 0;
+    static uint32_t adc_uoa            = 0;
+    static float adc_uoa_offset        = 0;
+
+    static uint32_t adc_uob_offset_sum = 0;
+    static uint32_t adc_uob            = 0;
+    static float adc_uob_offset        = 0;
+
+    static uint32_t adc_ioa_offset_sum = 0;
+    static uint32_t adc_ioa            = 0;
+    static float adc_ioa_offset        = 0;
+
+    static uint32_t adc_iob_offset_sum = 0;
+    static uint32_t adc_iob            = 0;
+    static float adc_iob_offset        = 0;
+
     /**********************************
      * @brief   电压/电流采样
      */
@@ -137,15 +173,43 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
             adc_cnt++;
             if (adc_cnt >= 1) {
                 adc_us_offset_sum += system_adc_value[0];
+                adc_udc_offset_sum += system_adc_value[1];
+                adc_uoa_offset_sum += system_adc_value[2];
+                adc_uob_offset_sum += system_adc_value[3];
+                adc_ioa_offset_sum += system_adc_value[4];
+                adc_iob_offset_sum += system_adc_value[5];
             }
             if (adc_cnt == 100) {
                 adc_us_offset      = adc_us_offset_sum / 100.0f;
+                adc_udc_offset     = adc_udc_offset_sum / 100.0f;
+                adc_uoa_offset     = adc_uoa_offset_sum / 100.0f;
+                adc_uob_offset     = adc_uob_offset_sum / 100.0f;
+                adc_ioa_offset     = adc_ioa_offset_sum / 100.0f;
+                adc_iob_offset     = adc_iob_offset_sum / 100.0f;
                 system_sample_flag = 1;
                 adc_us_offset_sum  = 0;
+                adc_udc_offset_sum = 0;
+                adc_uoa_offset_sum = 0;
+                adc_uob_offset_sum = 0;
+                adc_ioa_offset_sum = 0;
+                adc_iob_offset_sum = 0;
+                adc_cnt            = 0;
             }
         } else {
-            adc_us = system_adc_value[0];
-            u_s    = ((((float)adc_us - adc_us_offset) / 65535.f) * 3.3f) * 67.7492f;
+            adc_us   = system_adc_value[0];
+            u_s      = ((((float)adc_us - adc_us_offset) / 65535.f) * 3.3f) * 67.7492f;
+            adc_udc  = system_adc_value[1];
+            u_dc     = ((((float)adc_udc - adc_udc_offset) / 65535.f) * 3.3f) * 67.7492f;
+            adc_uoa  = system_adc_value[2];
+            uo_abc.a = ((((float)adc_uoa - adc_uoa_offset) / 65535.f) * 3.3f) * 67.7492f;
+            adc_uob  = system_adc_value[3];
+            uo_abc.b = ((((float)adc_uob - adc_uob_offset) / 65535.f) * 3.3f) * 67.7492f;
+            uo_abc.c = -uo_abc.a - uo_abc.b;
+            adc_ioa  = system_adc_value[4];
+            io_abc.a = ((((float)adc_ioa - adc_ioa_offset) / 65535.f) * 3.3f) * 5.0f;
+            adc_iob  = system_adc_value[5];
+            io_abc.b = ((((float)adc_iob - adc_iob_offset) / 65535.f) * 3.3f) * 5.0f;
+            io_abc.c = -io_abc.a - io_abc.b;
         }
     }
     // ADC 校准完毕后，可运行采样程序，控制程序受状态机控制
@@ -186,8 +250,45 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
         uo_theta = uo_theta + (2 * M_PI * 50) * system_sample_time;
         uo_theta = normalize(1, uo_theta, 0);
 
-        u_dq.d = 12;
-        u_dq.q = 0;
+        // // Clark + Park
+        // abc_2_dq(&uo_abc, &uo_dq, uo_theta);
+        // abc_2_dq(&io_abc, &io_dq, uo_theta);
+
+        // // Voltage PI controller
+        // uod_controller.ref = 12;
+        // uod_controller.fdb = uo_dq.d;
+        // if (system_flag == 3 || system_flag == 4) {
+        //     PID_Calc(&uod_controller, 1, system_sample_time);
+        // } else {
+        //     PID_Calc(&uod_controller, 0, system_sample_time);
+        // }
+
+        // uoq_controller.ref = 0;
+        // uoq_controller.fdb = uo_dq.q;
+        // if (system_flag == 3 || system_flag == 4) {
+        //     PID_Calc(&uoq_controller, 1, system_sample_time);
+        // } else {
+        //     PID_Calc(&uoq_controller, 0, system_sample_time);
+        // }
+
+        // // Current PI controller
+        // iod_controller.ref = uod_controller.output;
+        // iod_controller.fdb = io_dq.d;
+        // if (system_flag == 3 || system_flag == 4) {
+        //     PID_Calc(&iod_controller, 1, system_sample_time);
+        // } else {
+        //     PID_Calc(&iod_controller, 0, system_sample_time);
+        // }
+        // u_dq.d = iod_controller.output;
+
+        // ioq_controller.ref = uoq_controller.output;
+        // ioq_controller.fdb = io_dq.q;
+        // if (system_flag == 3 || system_flag == 4) {
+        //     PID_Calc(&ioq_controller, 1, system_sample_time);
+        // } else {
+        //     PID_Calc(&ioq_controller, 0, system_sample_time);
+        // }
+        // u_dq.q = ioq_controller.output;
 
         // AntiPark + AntiClark
         dq_2_abc(&u_dq, &u_abc, uo_theta);
