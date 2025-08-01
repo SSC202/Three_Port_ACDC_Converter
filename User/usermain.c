@@ -85,6 +85,8 @@ dq_t udq_rec;            // 整流器 dq 指令输出电压
 abc_t uabc_rec;          // 整流器 ABC 指令输出电压
 duty_abc_t duty_abc_rec; // 整流器输出占空比
 
+float id_ref = 2.39f; // 输入电流(可调)
+
 /**********************************************
  * @brief   用户自定义临时变量
  */
@@ -156,17 +158,17 @@ void usermain()
     init();
     while (1) {
         // 调试打印输出(注意:正式使用时请注释)
-        // if (system_print == 0) {
-        //     printf("u:%f,%f,%f\r\n", is_dq.d, is_dq.q, is_0);
-        // } else if (system_print == 1) {
-        //     printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
-        // } else if (system_print == 2) {
-        //     printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
-        // } else if (system_print == 3) {
-        //     printf("u:%f,%f\r\n", uo_ab, uo_bc);
-        // } else if (system_print == 4) {
-        //     printf("u:%f,%f\r\n", uo_dq.d, uo_dq.q);
-        // }
+        if (system_print == 0) {
+            printf("u:%f,%f,%f\r\n", is_dq.d, is_dq.q, is_0);
+        } else if (system_print == 1) {
+            printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
+        } else if (system_print == 2) {
+            printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
+        } else if (system_print == 3) {
+            printf("u:%f,%f\r\n", uo_ab, uo_bc);
+        } else if (system_print == 4) {
+            printf("u:%f,%f\r\n", uo_dq.d, uo_dq.q);
+        }
         // printf("u:%f,%f\r\n", uo_ab, uo_bc);
         // printf("u:%f,%f,%f\r\n", duty_abc_inv.dutya, duty_abc_inv.dutyb, duty_abc_inv.dutyc);
         // printf("u:%f,%f,%f\r\n", uo_abc.a, uo_abc.b, uo_abc.c);
@@ -278,19 +280,34 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
         } else if (system_flag == 2) {
             freq = 50.f;
         }
+        if (system_flag == 1) {
+            if (system_key1_flag == 1) {
+                ud_ref = ud_ref + 0.025f;
+                switch_clear();
+            } else if (system_key2_flag == 1) {
+                ud_ref = ud_ref - 0.025f;
+                switch_clear();
+            }
+            if (ud_ref < 4.f) {
+                ud_ref = 4.f;
+            } else if (ud_ref > 28.f) {
+                ud_ref = 28.f;
+            }
+        } else if (system_flag == 2) {
+            if (system_key1_flag == 1) {
+                ud_ref = ud_ref + 0.025f;
+                switch_clear();
+            } else if (system_key2_flag == 1) {
+                ud_ref = ud_ref - 0.025f;
+                switch_clear();
+            }
+            if (ud_ref < 15.f) {
+                ud_ref = 15.f;
+            } else if (ud_ref > 25.f) {
+                ud_ref = 28.f;
+            }
+        }
 
-        if (system_key1_flag == 1) {
-            ud_ref = ud_ref + 0.1f;
-            switch_clear();
-        } else if (system_key2_flag == 1) {
-            ud_ref = ud_ref - 0.1f;
-            switch_clear();
-        }
-        if (ud_ref < 4.f) {
-            ud_ref = 4.f;
-        } else if (ud_ref > 28.f) {
-            ud_ref = 28.f;
-        }
         // 相位生成
         uo_theta = uo_theta + (2 * M_PI * freq) * system_sample_time;
         uo_theta = normalize(1, uo_theta, 0);
@@ -327,53 +344,67 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
         dq_2_abc(&udq_inv, &uabc_inv, uo_theta);
         e_svpwm(&uabc_inv, u_dc, &duty_abc_inv);
 
-        // /********************************
-        //  * @brief   整流器控制
-        //  */
+        /********************************
+         * @brief   整流器控制
+         */
+        if (system_flag == 2) {
+            if (system_key7_flag == 1) {
+                id_ref = id_ref + 0.01f;
+                switch_clear();
+            } else if (system_key8_flag == 1) {
+                id_ref = id_ref - 0.01f;
+                switch_clear();
+            }
+            if (id_ref < 1.5f) {
+                id_ref = 1.5f;
+            } else if (id_ref > 2.6f) {
+                id_ref = 2.6f;
+            }
+        }
 
-        // // 电流采样/电流环控制
-        // // Clark-Park
-        // // dq_t is_dq_ori;
-        // abc_2_dq(&is_abc, &is_dq, uo_theta);
+        // 电流采样/电流环控制
+        // Clark-Park
+        // dq_t is_dq_ori;
+        abc_2_dq(&is_abc, &is_dq, uo_theta);
 
-        // // isd_filter.input = is_dq_ori.d;
-        // // LPF_Calc(&isd_filter);
-        // // is_dq.d = isd_filter.output;
+        // isd_filter.input = is_dq_ori.d;
+        // LPF_Calc(&isd_filter);
+        // is_dq.d = isd_filter.output;
 
-        // // isq_filter.input = is_dq_ori.q;
-        // // LPF_Calc(&isq_filter);
-        // // is_dq.q = isq_filter.output;
+        // isq_filter.input = is_dq_ori.q;
+        // LPF_Calc(&isq_filter);
+        // is_dq.q = isq_filter.output;
 
-        // // PID
-        // isd_controller.ref = is_dq.d;
-        // isd_controller.fdb = 0.9;
-        // if (system_run_flag == 1) {
-        //     PID_Calc(&isd_controller, 1, system_sample_time);
-        // } else {
-        //     PID_Calc(&isd_controller, 0, system_sample_time);
-        // }
-        // udq_rec.d = uo_dq.d + isd_controller.output;
+        // PID
+        isd_controller.ref = is_dq.d;
+        isd_controller.fdb = id_ref;
+        if (system_run_flag == 1) {
+            PID_Calc(&isd_controller, 1, system_sample_time);
+        } else {
+            PID_Calc(&isd_controller, 0, system_sample_time);
+        }
+        udq_rec.d = udq_inv.d + isd_controller.output;
 
-        // isq_controller.ref = is_dq.q;
-        // isq_controller.fdb = 0;
-        // if (system_run_flag == 1) {
-        //     PID_Calc(&isq_controller, 1, system_sample_time);
-        // } else {
-        //     PID_Calc(&isq_controller, 0, system_sample_time);
-        // }
-        // udq_rec.q = uo_dq.q + isq_controller.output;
+        isq_controller.ref = is_dq.q;
+        isq_controller.fdb = 0;
+        if (system_run_flag == 1) {
+            PID_Calc(&isq_controller, 1, system_sample_time);
+        } else {
+            PID_Calc(&isq_controller, 0, system_sample_time);
+        }
+        udq_rec.q = udq_inv.q + isq_controller.output;
 
-        // // 零序抑制器
-        // is_0 = (is_abc.a + is_abc.b + is_abc.c) / 3;
-        // float u_offset;
-        // u_offset = is_0 * 15;
+        // 零序抑制器
+        is_0 = (is_abc.a + is_abc.b + is_abc.c) / 3;
+        float u_offset;
+        u_offset = is_0 * 10;
 
-        // // 输出
-        // dq_2_abc(&udq_rec, &uabc_rec, uo_theta);
-        // uabc_rec.a = uabc_rec.a + u_offset;
-        // uabc_rec.b = uabc_rec.b + u_offset;
-        // uabc_rec.c = uabc_rec.c + u_offset;
-        // e_svpwm(&uabc_rec, u_dc, &duty_abc_rec);
+        // 输出
+        dq_2_abc(&udq_rec, &uabc_rec, uo_theta);
+        uabc_rec.a = uabc_rec.a + u_offset;
+        uabc_rec.b = uabc_rec.b + u_offset;
+        uabc_rec.c = uabc_rec.c + u_offset;
+        e_svpwm(&uabc_rec, u_dc, &duty_abc_rec);
     }
     /**********************************
      * @brief   状态机转换
