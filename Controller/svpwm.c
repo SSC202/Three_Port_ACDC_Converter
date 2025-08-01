@@ -9,10 +9,11 @@
  */
 void e_svpwm(abc_t *u_ref, float u_dc, duty_abc_t *duty_abc)
 {
-    float u_max = get_max(u_ref->a, u_ref->b, u_ref->c);
-    float u_min = get_min(u_ref->a, u_ref->b, u_ref->c);
+    // float u_max = get_max(u_ref->a, u_ref->b, u_ref->c);
+    // float u_min = get_min(u_ref->a, u_ref->b, u_ref->c);
 
-    float u_offset = -0.5f * (u_max + u_min);
+    // float u_offset = -0.5f * (u_max + u_min);
+    float u_offset = 0;
 
     float ua_ref_eq = u_ref->a + u_offset;
     duty_abc->dutya = 0.5f + ua_ref_eq / u_dc;
