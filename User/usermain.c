@@ -96,6 +96,7 @@ float duty;
  */
 static void init()
 {
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_SET);
     // TIM 开启
     HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
@@ -150,6 +151,7 @@ static void init()
     while (system_sample_flag == 0) {
         ;
     }
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_7, GPIO_PIN_RESET);
     system_run_flag = 0;
 }
 
@@ -157,18 +159,18 @@ void usermain()
 {
     init();
     while (1) {
-        // 调试打印输出(注意:正式使用时请注释)
-        if (system_print == 0) {
-            printf("u:%f,%f,%f\r\n", is_dq.d, is_dq.q, is_0);
-        } else if (system_print == 1) {
-            printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
-        } else if (system_print == 2) {
-            printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
-        } else if (system_print == 3) {
-            printf("u:%f,%f\r\n", uo_ab, uo_bc);
-        } else if (system_print == 4) {
-            printf("u:%f,%f\r\n", uo_dq.d, uo_dq.q);
-        }
+        // // 调试打印输出(注意:正式使用时请注释)
+        // if (system_print == 0) {
+        //     printf("u:%f,%f,%f\r\n", is_dq.d, is_dq.q, is_0);
+        // } else if (system_print == 1) {
+        //     printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
+        // } else if (system_print == 2) {
+        //     printf("u:%f,%f,%f\r\n", is_abc.a, is_abc.b, is_abc.c);
+        // } else if (system_print == 3) {
+        //     printf("u:%f,%f\r\n", uo_ab, uo_bc);
+        // } else if (system_print == 4) {
+        //     printf("u:%f,%f\r\n", uo_dq.d, uo_dq.q);
+        // }
         // printf("u:%f,%f\r\n", uo_ab, uo_bc);
         // printf("u:%f,%f,%f\r\n", duty_abc_inv.dutya, duty_abc_inv.dutyb, duty_abc_inv.dutyc);
         // printf("u:%f,%f,%f\r\n", uo_abc.a, uo_abc.b, uo_abc.c);
@@ -282,10 +284,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
         }
         if (system_flag == 1) {
             if (system_key1_flag == 1) {
-                ud_ref = ud_ref + 0.025f;
+                ud_ref = ud_ref + 0.01f;
                 switch_clear();
             } else if (system_key2_flag == 1) {
-                ud_ref = ud_ref - 0.025f;
+                ud_ref = ud_ref - 0.01f;
                 switch_clear();
             }
             if (ud_ref < 4.f) {
@@ -295,10 +297,10 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
             }
         } else if (system_flag == 2) {
             if (system_key1_flag == 1) {
-                ud_ref = ud_ref + 0.025f;
+                ud_ref = ud_ref + 0.01f;
                 switch_clear();
             } else if (system_key2_flag == 1) {
-                ud_ref = ud_ref - 0.025f;
+                ud_ref = ud_ref - 0.01f;
                 switch_clear();
             }
             if (ud_ref < 15.f) {
